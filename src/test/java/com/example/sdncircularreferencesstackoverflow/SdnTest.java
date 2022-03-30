@@ -6,19 +6,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.neo4j.core.Neo4jClient;
 
-import java.io.BufferedReader;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@SpringBootTest(properties = {"debug=true"})
+@SpringBootTest
 class SdnTest extends AbstractIT {
 
     @Autowired
@@ -27,33 +19,46 @@ class SdnTest extends AbstractIT {
     @Autowired
     private TypeRepository repository;
 
-
     @BeforeEach
     void setUp() {
         deleteAll();
     }
 
     @Test
-    void useRepository() {
-        runScript("script.cypher");
+    void findOk() {
+        Type formation = new Type().code("FORMATION");
+        Type parcoursType = new Type().code("PARCOURS-TYPE");
+        formation.allowed(parcoursType);
+        List<Type> toSave = List.of(
+                formation,
+                parcoursType
+        );
+        repository.saveAll(toSave);
 
         List<Type> types = repository.findAllTypes();
 
-        assertThat(types).hasSize(3);
+        assertThat(types).hasSize(2);
     }
 
     @Test
-    void withMatriceLiberte() {
-        Builder builder = new Builder();
-        repository.saveAll(builder.getAllTypes());
+    void findWithCircularReferenceThrowsStackOverflowException() {
+        Type formation = new Type().code("FORMATION");
+        Type groupement = new Type().code("GROUPEMENT");
+        formation.allowed(groupement);
+        groupement.allowed(groupement);
+        List<Type> toSave = List.of(
+                formation,
+                groupement
+        );
+        repository.saveAll(toSave);
 
         List<Type> types = repository.findAllTypes();
 
-        assertThat(types).hasSize(11);
+        assertThat(types).isNotEmpty();
     }
 
     @Test
-    void customBean() {
+    void findMoreComplexSampleWithCircularReferenceThrowsStackOverflowException() {
         Type formation = new Type().code("FORMATION");
         Type parcoursType = new Type().code("PARCOURS-TYPE");
         Type annee = new Type().code("ANNEE");
@@ -81,29 +86,10 @@ class SdnTest extends AbstractIT {
 
         List<Type> types = repository.findAllTypes();
 
-        assertThat(types).hasSize(11);
-    }
-
-    private void runScript(String script) {
-        List<String> cypher = readScriptContent(script);
-        cypher.forEach( c -> neo4jClient.query(c).run());
-    }
-
-    private List<String> readScriptContent(String script) {
-        InputStream is = Thread.currentThread().getContextClassLoader().getResourceAsStream(script);
-        if (is == null) {
-            throw new RuntimeException("Script " + script + " doesn't exists");
-        }
-        String content = new BufferedReader(
-                new InputStreamReader(is, StandardCharsets.UTF_8))
-                .lines()
-                .collect(Collectors.joining("\n"));
-        return Arrays.asList(content.split(";"));
+        assertThat(types).isNotEmpty();
     }
 
     private void deleteAll() {
-        neo4jClient.query("MATCH (n) DELETE n").run();
+        neo4jClient.query("MATCH (n) DETACH DELETE n").run();
     }
-
-
 }
